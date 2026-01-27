@@ -40,6 +40,12 @@ const userSchema = new mongoose.Schema(
     },
     emailVerificationCode: String,
     emailVerificationExpires: Date,
+    // Refresh token for JWT authentication
+    refreshToken: {
+      type: String,
+      select: false, // Don't include in queries by default
+    },
+    refreshTokenExpires: Date,
   },
   { timestamps: true }
 );
