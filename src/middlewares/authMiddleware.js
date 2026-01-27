@@ -6,8 +6,8 @@ exports.protect = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.split(" ")[1];
-    } else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
+    } else if (req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
     }
 
     if (!token) {
@@ -15,6 +15,9 @@ exports.protect = (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== 'access') {
+      return res.status(401).json({ message: "Invalid token type" });
+    }
 
     req.user = {
       id: decoded.id,
@@ -35,13 +38,17 @@ exports.optionalAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.split(" ")[1];
-    } else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
+    } else if (req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
     }
 
     if (!token) return next();
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== 'access') {
+      return next(); // Invalid token type, but optional so continue without user
+    }
+
     req.user = {
       id: decoded.id,
       role: decoded.role,
