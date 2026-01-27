@@ -47,7 +47,7 @@ const normalizeLivePayload = (live, liveStartDate) => {
   return result;
 };
 
-const isAdminRequest = (req) => !!(req.user && req.user.role === "admin");
+const { isAdmin } = require("../middlewares/authMiddleware");
 
 // `sanitizeCourseForPublic` delegated to utils/courseSanitizer
 
@@ -148,7 +148,7 @@ exports.getCourses = async (req, res) => {
       .populate("teachers")
       .sort({ createdAt: -1 });
 
-    if (isAdminRequest(req)) {
+    if (isAdmin(req)) {
       const adminPayload = courses.map((c) => attachEffectivePrice(c.toObject()));
       return res.json(adminPayload);
     }
@@ -168,7 +168,7 @@ exports.getCourseById = async (req, res) => {
       return res.status(404).json({ message: "Course not found" });
     }
 
-    if (isAdminRequest(req)) {
+    if (isAdmin(req)) {
       return res.json(attachEffectivePrice(course.toObject()));
     }
 
@@ -387,6 +387,14 @@ exports.addLesson = async (req, res) => {
 
     const lessonOrder = order || course.lessons.length + 1;
 
+    // Auto-calculate moduleNumber if not provided
+    let finalModuleNumber = moduleNumber;
+    if (!finalModuleNumber) {
+      // Get unique existing module numbers
+      const existingModules = [...new Set(course.lessons.map(l => l.moduleNumber).filter(m => m))].sort((a, b) => a - b);
+      finalModuleNumber = existingModules.length > 0 ? Math.max(...existingModules) + 1 : 1;
+    }
+
     course.lessons.push({
       title,
       description,
@@ -395,7 +403,7 @@ exports.addLesson = async (req, res) => {
       order: lessonOrder,
       durationMinutes,
       isPublished,
-      moduleNumber,
+      moduleNumber: finalModuleNumber,
       moduleTitle,
       moduleInstructor,
       lessonDate,

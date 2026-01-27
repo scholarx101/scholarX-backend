@@ -27,6 +27,14 @@ const enrollmentSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
       },
     ],
+    // Module-based progress tracking (for multi-teacher courses)
+    moduleProgress: [
+      {
+        moduleNumber: { type: Number, required: true },
+        completedLessons: [{ type: mongoose.Schema.Types.ObjectId }],
+        completedAt: { type: Date },
+      },
+    ],
     purchasedAt: {
       type: Date,
       default: Date.now,

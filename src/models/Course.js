@@ -27,7 +27,8 @@ const lessonSchema = new mongoose.Schema(
     // module system fields
     moduleNumber: { type: Number },
     moduleTitle: { type: String, trim: true },
-    moduleInstructor: { type: String, trim: true },
+    // Teacher assigned to manage this module (for multi-teacher courses)
+    moduleInstructor: { type: mongoose.Schema.Types.ObjectId, ref: "Teacher" },
     lessonDate: { type: String, trim: true },
   },
   { _id: true, timestamps: true }
