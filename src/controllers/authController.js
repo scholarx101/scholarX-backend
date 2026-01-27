@@ -6,38 +6,16 @@ const User = require("../models/User");
 const { sendEmail } = require("../utils/email");
 const isProd = process.env.NODE_ENV === 'production';
 
-// derive cookie maxAge from JWT_EXPIRES_IN (supports formats like '7d','24h','30m','3600s' or numeric seconds)
-const jwtExpirySetting = process.env.JWT_EXPIRES_IN || '1d';
-function parseExpiryToMs(val) {
-  if (!val) return undefined;
-  const s = String(val).trim();
-  const m = s.match(/^(\d+)([smhd])$/i);
-  if (m) {
-    const n = parseInt(m[1], 10);
-    const unit = m[2].toLowerCase();
-    switch (unit) {
-      case 's':
-        return n * 1000;
-      case 'm':
-        return n * 60 * 1000;
-      case 'h':
-        return n * 60 * 60 * 1000;
-      case 'd':
-        return n * 24 * 60 * 60 * 1000;
-    }
-  }
-  // if it's plain number, treat as seconds
-  if (/^\d+$/.test(s)) {
-    return parseInt(s, 10) * 1000;
-  }
-  return undefined;
-}
-const cookieMaxAgeMs = parseExpiryToMs(jwtExpirySetting);
+// JWT Token Configuration
+// Access Token: Short-lived (15 minutes) for API authentication
+const ACCESS_TOKEN_EXPIRES = '15m';
+// Refresh Token: Long-lived (7 days) for getting new access tokens
+const REFRESH_TOKEN_EXPIRES = '7d';
 
 // Cookie SameSite policy: prefer explicit env override, default to 'none' in production (for cross-site), 'lax' in dev
 const cookieSameSite = process.env.COOKIE_SAMESITE || (isProd ? 'none' : 'lax');
 
-// Helper: Set auth cookie
+// Helper: Set auth cookie (for access token)
 function setAuthCookie(res, token) {
   try {
     const cookieOptions = {
@@ -45,39 +23,49 @@ function setAuthCookie(res, token) {
       secure: isProd,
       sameSite: cookieSameSite,
       path: "/",
+      maxAge: 15 * 60 * 1000, // 15 minutes
     };
-    if (cookieMaxAgeMs) cookieOptions.maxAge = cookieMaxAgeMs;
-    res.cookie("token", token, cookieOptions);
+    res.cookie("accessToken", token, cookieOptions);
   } catch (err) {
     console.error("Failed to set auth cookie", err.message || err);
   }
 }
 
-// Helper: Format user response object
-function formatUserResponse(user) {
-  return {
-    id: user._id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    emailVerified: user.emailVerified,
-    phone: user.phone,
-    addressLine1: user.addressLine1,
-    addressLine2: user.addressLine2,
-    city: user.city,
-    country: user.country,
-  };
+// Helper: Set refresh token cookie
+function setRefreshCookie(res, token) {
+  try {
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: cookieSameSite,
+      path: "/auth",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    };
+    res.cookie("refreshToken", token, cookieOptions);
+  } catch (err) {
+    console.error("Failed to set refresh cookie", err.message || err);
+  }
 }
 
-// Helper: Create JWT token
-function createToken(user) {
+// Helper: Create access token (short-lived)
+function createAccessToken(user) {
   const payload = {
     id: user._id,
     role: user.role,
+    type: 'access'
   };
   const secret = process.env.JWT_SECRET;
-  const expiresIn = process.env.JWT_EXPIRES_IN || "1d";
-  return jwt.sign(payload, secret, { expiresIn });
+  return jwt.sign(payload, secret, { expiresIn: ACCESS_TOKEN_EXPIRES });
+}
+
+// Helper: Create refresh token (long-lived)
+function createRefreshToken(user) {
+  const payload = {
+    id: user._id,
+    type: 'refresh'
+  };
+  const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+  return jwt.sign(payload, secret, { expiresIn: REFRESH_TOKEN_EXPIRES });
 }
 
 // validate returnTo path (only allow internal relative paths starting with '/')
@@ -142,12 +130,23 @@ exports.register = async (req, res) => {
       html: `<p>${user.name},</p><p>Your verification code <strong>${otp}</strong> will expire in 5 minutes.</p>`,
     }).catch((emailError) => console.error("Error sending verification email", emailError && emailError.message ? emailError.message : emailError));
 
-    const token = createToken(user);
-    setAuthCookie(res, token);
+    // Create tokens (but don't set cookies until email is verified)
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user);
+
+    // Store refresh token in database
+    user.refreshToken = refreshToken;
+    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    await user.save();
+
+    // Set cookies
+    setAuthCookie(res, accessToken);
+    setRefreshCookie(res, refreshToken);
 
     res.status(201).json({
       user: formatUserResponse(user),
-      token,
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -179,12 +178,23 @@ exports.login = async (req, res) => {
         .json({ message: "Please verify your email before logging in." });
     }
 
-    const token = createToken(user);
-    setAuthCookie(res, token);
+    // Create tokens
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user);
+
+    // Store refresh token in database
+    user.refreshToken = refreshToken;
+    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    await user.save();
+
+    // Set cookies
+    setAuthCookie(res, accessToken);
+    setRefreshCookie(res, refreshToken);
 
     res.json({
       user: formatUserResponse(user),
-      token,
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -307,12 +317,23 @@ exports.googleLogin = async (req, res) => {
       }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
     }
 
-    const token = createToken(user);
-    setAuthCookie(res, token);
+    // Create tokens
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user);
+
+    // Store refresh token in database
+    user.refreshToken = refreshToken;
+    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    await user.save();
+
+    // Set cookies
+    setAuthCookie(res, accessToken);
+    setRefreshCookie(res, refreshToken);
 
     return res.json({
       user: formatUserResponse(user),
-      token,
+      accessToken,
+      refreshToken,
       returnTo: safeReturnTo,
     });
   } catch (error) {
@@ -321,47 +342,83 @@ exports.googleLogin = async (req, res) => {
   }
 };
 
-// Logout - clear auth cookie
-exports.logout = (req, res) => {
+// Refresh access token using refresh token
+exports.refreshToken = async (req, res) => {
   try {
-    res.clearCookie('token', { httpOnly: true, secure: isProd, sameSite: cookieSameSite, path: '/' });
+    let refreshToken = null;
+
+    // Get refresh token from cookie or body
+    if (req.cookies && req.cookies.refreshToken) {
+      refreshToken = req.cookies.refreshToken;
+    } else if (req.body.refreshToken) {
+      refreshToken = req.body.refreshToken;
+    }
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Refresh token required" });
+    }
+
+    // Verify refresh token
+    const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+    const decoded = jwt.verify(refreshToken, secret);
+
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
+    // Find user and check if refresh token matches
+    const user = await User.findById(decoded.id).select('+refreshToken');
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
+    // Check if refresh token is expired
+    if (user.refreshTokenExpires < new Date()) {
+      // Clear expired refresh token
+      user.refreshToken = undefined;
+      user.refreshTokenExpires = undefined;
+      await user.save();
+      return res.status(401).json({ message: "Refresh token expired" });
+    }
+
+    // Create new access token
+    const newAccessToken = createAccessToken(user);
+    setAuthCookie(res, newAccessToken);
+
+    res.json({
+      accessToken: newAccessToken,
+      user: formatUserResponse(user),
+    });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: "Refresh token expired" });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Logout - clear auth cookies and refresh token
+exports.logout = async (req, res) => {
+  try {
+    // Clear refresh token from database if user is logged in
+    if (req.user && req.user.id) {
+      await User.findByIdAndUpdate(req.user.id, {
+        refreshToken: undefined,
+        refreshTokenExpires: undefined
+      });
+    }
+
+    // Clear cookies
+    res.clearCookie('accessToken', { httpOnly: true, secure: isProd, sameSite: cookieSameSite, path: '/' });
+    res.clearCookie('refreshToken', { httpOnly: true, secure: isProd, sameSite: cookieSameSite, path: '/auth' });
+
     return res.json({ loggedOut: true });
   } catch (err) {
     console.error('Logout error', err.message || err);
     return res.status(500).json({ loggedOut: false });
-  }
-};
-
-// Return current authenticated user (based on cookie or Bearer token)
-exports.me = async (req, res) => {
-  try {
-    let token = null;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
-    } else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-    }
-
-    if (!token) {
-      return res.status(204).send();
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(204).send();
-
-    return res.status(200).json({
-      user: formatUserResponse(user),
-    });
-  } catch (err) {
-    // If token is present but invalid/expired, respond 401 to force re-authentication on frontend.
-    if (err && (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError')) {
-      return res.status(401).json({ message: 'Not authorized: token invalid or expired' });
-    }
-
-    // For other errors, return a server error
-    return res.status(500).json({ message: err.message || 'Server error' });
   }
 };
 
@@ -426,16 +483,64 @@ exports.googleRegister = async (req, res) => {
       html: `<p>Assalamu alaikum ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning, Insha'Allah.</p>`,
     }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
 
-    const token = createToken(user);
-    setAuthCookie(res, token);
+    // Create tokens
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user);
+
+    // Store refresh token in database
+    user.refreshToken = refreshToken;
+    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    await user.save();
+
+    // Set cookies
+    setAuthCookie(res, accessToken);
+    setRefreshCookie(res, refreshToken);
 
     return res.status(201).json({
       user: formatUserResponse(user),
-      token,
+      accessToken,
+      refreshToken,
       returnTo: safeReturnTo,
     });
   } catch (error) {
     console.error("Google register error", error.message || error);
     return res.status(400).json({ message: "Google register failed" });
+  }
+};
+
+// Return current authenticated user (based on cookie or Bearer token)
+exports.me = async (req, res) => {
+  try {
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
+    }
+
+    if (!token) {
+      return res.status(204).send();
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== 'access') {
+      return res.status(401).json({ message: 'Invalid token type' });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user) return res.status(204).send();
+
+    return res.status(200).json({
+      user: formatUserResponse(user),
+    });
+  } catch (err) {
+    // If token is present but invalid/expired, respond 401 to force re-authentication on frontend.
+    if (err && (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError')) {
+      return res.status(401).json({ message: 'Not authorized: token invalid or expired' });
+    }
+
+    // For other errors, return a server error
+    return res.status(500).json({ message: err.message || 'Server error' });
   }
 };
