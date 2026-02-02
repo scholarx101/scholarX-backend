@@ -78,6 +78,55 @@ function isValidReturnTo(path) {
   return path.startsWith('/');
 }
 
+// Helper: Send OTP verification email
+function sendOtpEmail(email, name, otp) {
+  return sendEmail({
+    to: email,
+    subject: "ScholarX Account Verification Code",
+    text: `Your verification code ${otp} will expire in 5 minutes.`,
+    html: `<p>${name},</p><p>Your verification code <strong>${otp}</strong> will expire in 5 minutes.</p>`,
+  }).catch((emailError) => console.error("Error sending verification email", emailError && emailError.message ? emailError.message : emailError));
+}
+
+// Helper: Send registration success/welcome email (reusable for both manual and Google registration)
+function sendRegistrationSuccessEmail(email, name) {
+  return sendEmail({
+    to: email,
+    subject: "Registration successful!",
+    text: "Your account has been created successfully and your email is verified. You can log in and start learning.",
+    html: `<p>Welcome ${name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning.</p>`,
+  }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
+}
+
+// Helper: Create and store tokens for a user
+async function createAndStoreTokens(user) {
+  const accessToken = createAccessToken(user);
+  const refreshToken = createRefreshToken(user);
+  
+  // Store refresh token in database
+  user.refreshToken = refreshToken;
+  user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  await user.save();
+  
+  return { accessToken, refreshToken };
+}
+
+// Helper: Set both auth cookies and return token response
+function sendTokenResponse(res, user, accessToken, refreshToken, statusCode = 200, returnTo = null) {
+  setAuthCookie(res, accessToken);
+  setRefreshCookie(res, refreshToken);
+  
+  const response = {
+    user: formatUserResponse(user),
+    accessToken,
+    refreshToken,
+  };
+  
+  if (returnTo) response.returnTo = returnTo;
+  
+  return res.status(statusCode).json(response);
+}
+
 // Register new user (student by default unless role is provided and allowed)
 exports.register = async (req, res) => {
   try {
@@ -123,32 +172,12 @@ exports.register = async (req, res) => {
       emailVerificationExpires: otpExpires,
     });
 
-    // send OTP email (fire-and-forget)
-    sendEmail({
-      to: user.email,
-      subject: "ScholarX Account Verification Code",
-      text: `Your verification code ${otp} will expire in 5 minutes.`,
-      html: `<p>${user.name},</p><p>Your verification code <strong>${otp}</strong> will expire in 5 minutes.</p>`,
-    }).catch((emailError) => console.error("Error sending verification email", emailError && emailError.message ? emailError.message : emailError));
+    // Send OTP email (fire-and-forget)
+    sendOtpEmail(user.email, user.name, otp);
 
-    // Create tokens (but don't set cookies until email is verified)
-    const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user);
-
-    // Store refresh token in database
-    user.refreshToken = refreshToken;
-    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await user.save();
-
-    // Set cookies
-    setAuthCookie(res, accessToken);
-    setRefreshCookie(res, refreshToken);
-
-    res.status(201).json({
-      user: formatUserResponse(user),
-      accessToken,
-      refreshToken,
-    });
+    // Create tokens and send response
+    const { accessToken, refreshToken } = await createAndStoreTokens(user);
+    sendTokenResponse(res, user, accessToken, refreshToken, 201);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -179,24 +208,9 @@ exports.login = async (req, res) => {
         .json({ message: "Please verify your email before logging in." });
     }
 
-    // Create tokens
-    const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user);
-
-    // Store refresh token in database
-    user.refreshToken = refreshToken;
-    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await user.save();
-
-    // Set cookies
-    setAuthCookie(res, accessToken);
-    setRefreshCookie(res, refreshToken);
-
-    res.json({
-      user: formatUserResponse(user),
-      accessToken,
-      refreshToken,
-    });
+    // Create tokens and send response
+    const { accessToken, refreshToken } = await createAndStoreTokens(user);
+    sendTokenResponse(res, user, accessToken, refreshToken);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -232,13 +246,9 @@ exports.verifyEmail = async (req, res) => {
     user.emailVerificationCode = undefined;
     user.emailVerificationExpires = undefined;
     await user.save();
-    // send registration success email (fire-and-forget)
-    sendEmail({
-      to: user.email,
-      subject: "Registration successful!",
-      text: "Your account has been created successfully after email verification.",
-      html: `<p>Welcome ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning.</p>`,
-    }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
+    
+    // Send registration success email (fire-and-forget)
+    sendRegistrationSuccessEmail(user.email, user.name);
 
     return res.json({ message: "Email verified successfully." });
   } catch (error) {
@@ -310,33 +320,12 @@ exports.googleLogin = async (req, res) => {
 
     // Send registration success email if verification was just confirmed (fire-and-forget)
     if (sendWelcome) {
-      sendEmail({
-        to: user.email,
-        subject: "Registration successful!",
-        text: "Your account has been created successfully.",
-        html: `<p>Welcome ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning.</p>`,
-      }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
+      sendRegistrationSuccessEmail(user.email, user.name);
     }
 
-    // Create tokens
-    const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user);
-
-    // Store refresh token in database
-    user.refreshToken = refreshToken;
-    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await user.save();
-
-    // Set cookies
-    setAuthCookie(res, accessToken);
-    setRefreshCookie(res, refreshToken);
-
-    return res.json({
-      user: formatUserResponse(user),
-      accessToken,
-      refreshToken,
-      returnTo: safeReturnTo,
-    });
+    // Create tokens and send response
+    const { accessToken, refreshToken } = await createAndStoreTokens(user);
+    return sendTokenResponse(res, user, accessToken, refreshToken, 200, safeReturnTo);
   } catch (error) {
     console.error("Google login error", error.message || error);
     return res.status(401).json({ message: "Google login failed" });
@@ -477,32 +466,11 @@ exports.googleRegister = async (req, res) => {
     });
 
     // send registration success email (fire-and-forget)
-    sendEmail({
-      to: user.email,
-      subject: "Registration successful!",
-      text: "Your account has been created successfully.",
-      html: `<p>Assalamu alaikum ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning, Insha'Allah.</p>`,
-    }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
+    sendRegistrationSuccessEmail(user.email, user.name);
 
-    // Create tokens
-    const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user);
-
-    // Store refresh token in database
-    user.refreshToken = refreshToken;
-    user.refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await user.save();
-
-    // Set cookies
-    setAuthCookie(res, accessToken);
-    setRefreshCookie(res, refreshToken);
-
-    return res.status(201).json({
-      user: formatUserResponse(user),
-      accessToken,
-      refreshToken,
-      returnTo: safeReturnTo,
-    });
+    // Create tokens and send response
+    const { accessToken, refreshToken } = await createAndStoreTokens(user);
+    return sendTokenResponse(res, user, accessToken, refreshToken, 201, safeReturnTo);
   } catch (error) {
     console.error("Google register error", error.message || error);
     return res.status(400).json({ message: "Google register failed" });
