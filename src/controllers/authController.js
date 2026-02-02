@@ -4,7 +4,17 @@ const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const { sendEmail } = require("../utils/email");
-const isProd = process.env.NODE_ENV === 'production';
+
+// Minimal user formatter used in responses (keeps payload small & stable)
+function formatUserResponse(user) {
+  if (!user) return null;
+  return {
+    id: user._id || user.id,
+    name: user.name || undefined,
+    email: user.email || undefined,
+    role: user.role || 'student',
+  };
+}
 
 // JWT Token Configuration
 // Access Token: Short-lived (15 minutes) for API authentication
@@ -12,38 +22,29 @@ const ACCESS_TOKEN_EXPIRES = '15m';
 // Refresh Token: Long-lived (7 days) for getting new access tokens
 const REFRESH_TOKEN_EXPIRES = '7d';
 
-// Cookie SameSite policy: prefer explicit env override, default to 'none' in production (for cross-site), 'lax' in dev
-const cookieSameSite = process.env.COOKIE_SAMESITE || (isProd ? 'none' : 'lax');
+// Centralized cookie options (see src/utils/cookieOptions.js)
+const {
+  getAuthCookieOptions,
+  getRefreshCookieOptions,
+  getClearAuthCookieOptions,
+  getClearRefreshCookieOptions,
+} = require("../utils/cookieOptions");
 
 // Helper: Set auth cookie (for access token)
 function setAuthCookie(res, token) {
   try {
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: cookieSameSite,
-      path: "/",
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    };
-    res.cookie("accessToken", token, cookieOptions);
+    res.cookie('accessToken', token, getAuthCookieOptions());
   } catch (err) {
-    console.error("Failed to set auth cookie", err.message || err);
+    console.error('Failed to set auth cookie', err.message || err);
   }
 }
 
 // Helper: Set refresh token cookie
 function setRefreshCookie(res, token) {
   try {
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: cookieSameSite,
-      path: "/auth",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    };
-    res.cookie("refreshToken", token, cookieOptions);
+    res.cookie('refreshToken', token, getRefreshCookieOptions());
   } catch (err) {
-    console.error("Failed to set refresh cookie", err.message || err);
+    console.error('Failed to set refresh cookie', err.message || err);
   }
 }
 
@@ -236,7 +237,7 @@ exports.verifyEmail = async (req, res) => {
       to: user.email,
       subject: "Registration successful!",
       text: "Your account has been created successfully after email verification.",
-      html: `<p>Assalamu alaikum ${user.name},</p><p>Your email has been verified and your account is now active. You can log in and start learning, Insha'Allah.</p>`,
+      html: `<p>Welcome ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning.</p>`,
     }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
 
     return res.json({ message: "Email verified successfully." });
@@ -313,7 +314,7 @@ exports.googleLogin = async (req, res) => {
         to: user.email,
         subject: "Registration successful!",
         text: "Your account has been created successfully.",
-        html: `<p>Assalamu alaikum ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning, Insha'Allah.</p>`,
+        html: `<p>Welcome ${user.name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning.</p>`,
       }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
     }
 
@@ -412,8 +413,8 @@ exports.logout = async (req, res) => {
     }
 
     // Clear cookies
-    res.clearCookie('accessToken', { httpOnly: true, secure: isProd, sameSite: cookieSameSite, path: '/' });
-    res.clearCookie('refreshToken', { httpOnly: true, secure: isProd, sameSite: cookieSameSite, path: '/auth' });
+    res.clearCookie('accessToken', getClearAuthCookieOptions());
+    res.clearCookie('refreshToken', getClearRefreshCookieOptions());
 
     return res.json({ loggedOut: true });
   } catch (err) {
