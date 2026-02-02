@@ -1,7 +1,7 @@
 const Course = require("../models/Course");
 const Enrollment = require("../models/Enrollment");
 const path = require("path");
-const { sendEmail } = require("../utils/email");
+const { sendCourseUpdateNotification } = require("../utils/emailTemplates");
 const { deleteCourseFiles, deleteLessonFiles } = require("../utils/fileManager");
 
 const {
@@ -63,26 +63,12 @@ async function notifyEnrolledStudents({ course, lessonTitle, updateText, batchId
     const enrollments = await Enrollment.find(query).populate("student", "name email");
     const recipients = enrollments
       .map((e) => e.student)
-      .filter((s) => s && s.email);
+      .filter((s) => s && s.email)
+      .map((s) => s.email);
 
     if (recipients.length === 0) return;
 
-    const subject = `Course update: ${course.title}`;
-    const html = `<p>Assalamu alaikum,</p>
-      <p>There is a new update in <strong>${course.title}</strong>${lessonTitle ? ` (Lesson: ${lessonTitle})` : ""}.</p>
-      <p>${updateText}</p>
-      <p>Please log in to view the latest materials in shaa Allah.</p>`;
-
-    await Promise.allSettled(
-      recipients.map((student) =>
-        sendEmail({
-          to: student.email,
-          subject,
-          html,
-          text: `Course update: ${course.title}. ${lessonTitle ? `Lesson: ${lessonTitle}. ` : ""}${updateText}`,
-        })
-      )
-    );
+    await sendCourseUpdateNotification(recipients, course.title, lessonTitle, updateText);
   } catch (error) {
     console.error("Notify enrolled students error", error.message || error);
   }

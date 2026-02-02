@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
-const { sendEmail } = require("../utils/email");
+const { sendOtpEmail, sendRegistrationSuccessEmail } = require("../utils/emailTemplates");
 
 // Minimal user formatter used in responses (keeps payload small & stable)
 function formatUserResponse(user) {
@@ -79,23 +79,13 @@ function isValidReturnTo(path) {
 }
 
 // Helper: Send OTP verification email
-function sendOtpEmail(email, name, otp) {
-  return sendEmail({
-    to: email,
-    subject: "ScholarX Account Verification Code",
-    text: `Your verification code ${otp} will expire in 5 minutes.`,
-    html: `<p>${name},</p><p>Your verification code <strong>${otp}</strong> will expire in 5 minutes.</p>`,
-  }).catch((emailError) => console.error("Error sending verification email", emailError && emailError.message ? emailError.message : emailError));
+function sendOtpEmailHelper(email, name, otp) {
+  return sendOtpEmail(email, name, otp);
 }
 
 // Helper: Send registration success/welcome email (reusable for both manual and Google registration)
-function sendRegistrationSuccessEmail(email, name) {
-  return sendEmail({
-    to: email,
-    subject: "Registration successful!",
-    text: "Your account has been created successfully and your email is verified. You can log in and start learning.",
-    html: `<p>Welcome ${name},</p><p>Your account has been created successfully and your email is verified. You can log in and start learning.</p>`,
-  }).catch((emailError) => console.error("Error sending registration success email", emailError && emailError.message ? emailError.message : emailError));
+function sendRegistrationSuccessEmailHelper(email, name) {
+  return sendRegistrationSuccessEmail(email, name);
 }
 
 // Helper: Create and store tokens for a user
@@ -173,7 +163,7 @@ exports.register = async (req, res) => {
     });
 
     // Send OTP email (fire-and-forget)
-    sendOtpEmail(user.email, user.name, otp);
+    sendOtpEmailHelper(user.email, user.name, otp);
 
     // Create tokens and send response
     const { accessToken, refreshToken } = await createAndStoreTokens(user);
@@ -248,7 +238,7 @@ exports.verifyEmail = async (req, res) => {
     await user.save();
     
     // Send registration success email (fire-and-forget)
-    sendRegistrationSuccessEmail(user.email, user.name);
+    sendRegistrationSuccessEmailHelper(user.email, user.name);
 
     return res.json({ message: "Email verified successfully." });
   } catch (error) {
@@ -320,7 +310,7 @@ exports.googleLogin = async (req, res) => {
 
     // Send registration success email if verification was just confirmed (fire-and-forget)
     if (sendWelcome) {
-      sendRegistrationSuccessEmail(user.email, user.name);
+      sendRegistrationSuccessEmailHelper(user.email, user.name);
     }
 
     // Create tokens and send response
@@ -466,7 +456,7 @@ exports.googleRegister = async (req, res) => {
     });
 
     // send registration success email (fire-and-forget)
-    sendRegistrationSuccessEmail(user.email, user.name);
+    sendRegistrationSuccessEmailHelper(user.email, user.name);
 
     // Create tokens and send response
     const { accessToken, refreshToken } = await createAndStoreTokens(user);
