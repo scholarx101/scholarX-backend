@@ -15,4 +15,7 @@ router.patch("/:id", protect, requireRole("admin"), userController.updateUser);
 // Admin: delete a user
 router.delete("/:id", protect, requireRole("admin"), userController.deleteUser);
 
+// Admin: reset user password
+router.post("/:id/reset-password", protect, requireRole("admin"), userController.resetUserPassword);
+
 module.exports = router;

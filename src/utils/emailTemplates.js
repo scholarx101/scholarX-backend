@@ -69,9 +69,25 @@ async function sendTeacherApprovalEmail(email, name, tempPassword) {
   }).catch((emailError) => console.error("Error sending teacher approval email", emailError && emailError.message ? emailError.message : emailError));
 }
 
+// Send password reset notification (admin-initiated)
+async function sendPasswordResetEmail(email, name, tempPassword) {
+  return sendEmail({
+    to: email,
+    subject: "ScholarX Password Reset - New Temporary Password",
+    text: `Assalamu alaikum ${name},\n\nYour password has been reset by an administrator.\n\nYour new temporary password: ${tempPassword}\n\nPlease log in immediately and change your password to something secure.\n\nLogin URL: https://scholarx.example.com/login\n\nIf you did not request this reset, please contact support immediately.`,
+    html: `<p>Assalamu alaikum ${name},</p>
+    <p>Your password has been reset by an administrator.</p>
+    <p><strong>Your new temporary password:</strong> <code style="background-color: #f0f0f0; padding: 5px; border-radius: 3px;">${tempPassword}</code></p>
+    <p><strong>Important:</strong> Please log in immediately and change your password to something secure.</p>
+    <p><a href="https://scholarx.example.com/login" style="background-color: #FF6B35; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Login to ScholarX</a></p>
+    <p>If you did not request this password reset, please contact our support team immediately.</p>`,
+  }).catch((emailError) => console.error("Error sending password reset email", emailError && emailError.message ? emailError.message : emailError));
+}
+
 module.exports = {
   sendOtpEmail,
   sendRegistrationSuccessEmail,
   sendCourseUpdateNotification,
   sendTeacherApprovalEmail,
+  sendPasswordResetEmail,
 };

@@ -15,12 +15,14 @@ const courseRoutes = require('./routes/courseRoutes');
 const enrollmentRoutes = require('./routes/enrollmentRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
 const teacherApplicationRoutes = require('./routes/teacherApplicationRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/teachers', teacherRoutes);
 app.use('/api/teacher-applications', teacherApplicationRoutes);
+app.use('/api/users', userRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "ScholarX Backend API Running" });
