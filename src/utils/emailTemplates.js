@@ -43,8 +43,35 @@ async function sendCourseUpdateNotification(recipients, courseTitle, lessonTitle
   ).catch((emailError) => console.error("Error sending course update notifications", emailError && emailError.message ? emailError.message : emailError));
 }
 
+// Send teacher application approval notification with login credentials
+async function sendTeacherApprovalEmail(email, name, tempPassword) {
+  return sendEmail({
+    to: email,
+    subject: "Congratulations! Your ScholarX Teacher Application is Approved",
+    text: `Welcome to ScholarX, ${name}!\n\nYour teacher application has been approved!\n\nYour account details:\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease log in at the ScholarX platform and change your password immediately.\n\nLogin URL: https://scholarx.example.com/login`,
+    html: `<p>Assalamu alaikum ${name},</p>
+    <p>We're excited to inform you that your teacher application has been <strong>approved</strong>!</p>
+    <p>Your account is now active and ready to use. Here are your login credentials:</p>
+    <table style="border-collapse: collapse; margin: 20px 0;">
+      <tr><td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Email:</td><td style="padding: 10px; border: 1px solid #ddd;">${email}</td></tr>
+      <tr><td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Temporary Password:</td><td style="padding: 10px; border: 1px solid #ddd;"><code>${tempPassword}</code></td></tr>
+    </table>
+    <p><strong>Important:</strong> Please log in immediately and change your password to something secure.</p>
+    <p><a href="https://scholarx.example.com/login" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Login to ScholarX</a></p>
+    <p>Once logged in, you can:</p>
+    <ul>
+      <li>View and manage your assigned courses</li>
+      <li>Track student progress</li>
+      <li>Upload lesson materials and recordings</li>
+      <li>Update your teacher profile</li>
+    </ul>
+    <p>If you need any assistance, please contact our support team.</p>`,
+  }).catch((emailError) => console.error("Error sending teacher approval email", emailError && emailError.message ? emailError.message : emailError));
+}
+
 module.exports = {
   sendOtpEmail,
   sendRegistrationSuccessEmail,
   sendCourseUpdateNotification,
+  sendTeacherApprovalEmail,
 };

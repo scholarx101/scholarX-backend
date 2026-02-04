@@ -1,6 +1,10 @@
 const TeacherApplication = require("../models/TeacherApplication");
 const Teacher = require("../models/Teacher");
+const User = require("../models/User");
 const path = require("path");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const { sendTeacherApprovalEmail } = require("../utils/emailTemplates");
 
 // Public: submit application to become a teacher
 exports.submitTeacherApplication = async (req, res) => {
@@ -121,17 +125,44 @@ exports.updateTeacherApplication = async (req, res) => {
   }
 };
 
-// Admin: approve and create a Teacher record (so it appears in teacher panel)
+// Admin: approve and create a Teacher + User record
 exports.approveTeacherApplication = async (req, res) => {
   try {
     const application = await TeacherApplication.findById(req.params.id);
     if (!application) return res.status(404).json({ message: "Application not found" });
 
     if (application.status === "approved" && application.teacher) {
-      const existingTeacher = await Teacher.findById(application.teacher);
-      return res.json({ application, teacher: existingTeacher });
+      const existingTeacher = await Teacher.findById(application.teacher).populate("user");
+      return res.json({ 
+        application, 
+        teacher: existingTeacher,
+        message: "Application already approved"
+      });
     }
 
+    // Check if user already exists with this email
+    let user = await User.findOne({ email: application.email });
+    let tempPassword = null;
+    
+    if (!user) {
+      // Create User account for the teacher
+      tempPassword = crypto.randomBytes(12).toString('hex');
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+      user = await User.create({
+        name: application.name,
+        email: application.email,
+        password: hashedPassword,
+        role: "teacher",
+        emailVerified: true, // Auto-verify approved teachers
+      });
+    } else if (user.role !== "teacher") {
+      // Update role to teacher if existing user
+      user.role = "teacher";
+      await user.save();
+    }
+
+    // Create Teacher profile
     const teacher = await Teacher.create({
       name: application.name,
       designation: application.designation,
@@ -142,14 +173,28 @@ exports.approveTeacherApplication = async (req, res) => {
       socials: application.socials,
       photoUrl: application.photoUrl,
       cvUrl: application.cvUrl,
+      user: user._id, // Link to user account
       isActive: true,
     });
 
+    // Update application status
     application.status = "approved";
     application.teacher = teacher._id;
     await application.save();
 
-    res.json({ application, teacher });
+    // Send approval notification email only if user was just created
+    if (tempPassword) {
+      await sendTeacherApprovalEmail(user.email, user.name, tempPassword);
+    }
+
+    const populatedTeacher = await Teacher.findById(teacher._id).populate("user");
+    
+    res.json({ 
+      application, 
+      teacher: populatedTeacher,
+      message: "Teacher approved and user account created successfully",
+      notificationSent: !!tempPassword
+    });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

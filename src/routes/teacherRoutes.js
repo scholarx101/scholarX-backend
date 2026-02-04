@@ -9,12 +9,7 @@ const { uploadImage } = require("../middlewares/uploadMiddleware");
 router.get("/", optionalAuth, teacherController.getTeachers);
 router.get("/:id", optionalAuth, teacherController.getTeacherById);
 
-// Admin CRUD
-router.post("/", protect, requireRole("admin"), teacherController.createTeacher);
-router.patch("/:id", protect, requireRole("admin"), teacherController.updateTeacher);
-router.delete("/:id", protect, requireRole("admin"), teacherController.deleteTeacher);
-
-// Admin: upload teacher photo
+// Admin: update teacher photo (for approved teachers)
 router.post(
   "/:id/photo",
   protect,
