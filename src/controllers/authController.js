@@ -20,7 +20,7 @@ function formatUserResponse(user) {
 // Access Token: Short-lived (15 minutes) for API authentication
 const ACCESS_TOKEN_EXPIRES = '15m';
 // Refresh Token: Long-lived (7 days) for getting new access tokens
-const REFRESH_TOKEN_EXPIRES = '7d';
+const REFRESH_TOKEN_EXPIRES = '1d';
 
 // Centralized cookie options (see src/utils/cookieOptions.js)
 const {
