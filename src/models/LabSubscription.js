@@ -21,8 +21,14 @@ const labSubscriptionSchema = new mongoose.Schema(
       default: "pending",
       index: true,
     },
-    // Tracks how many months the student has paid (populated when payment gateway is integrated)
+    // Tracks how many months the student has paid
     monthsPaid: { type: Number, default: 0, min: 0 },
+
+    // Payment audit fields
+    paymentProvider: { type: String, trim: true, default: "sslcommerz" },
+    lastTransactionId: { type: String, trim: true, default: null },
+    amountPaid: { type: Number, default: 0 },
+    currency: { type: String, trim: true, default: null },
 
     subscribedAt: { type: Date, default: Date.now },
     cancelledAt: { type: Date },
