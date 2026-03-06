@@ -23,6 +23,7 @@ const userRoutes = require('./routes/userRoutes');
 const labRoutes = require('./routes/labRoutes');
 const labSubscriptionRoutes = require('./routes/labSubscriptionRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const aiToolsRoutes = require('./routes/aiToolsRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
@@ -33,6 +34,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/labs', labRoutes);
 app.use('/api/lab-subscriptions', labSubscriptionRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/ai-tools', aiToolsRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "ScholarX Backend API Running" });
