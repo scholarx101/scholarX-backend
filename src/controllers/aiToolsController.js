@@ -1,9 +1,96 @@
 const AIConversation = require("../models/AIConversation");
+const LabSubscription = require("../models/LabSubscription");
+const Lab = require("../models/Lab");
 const openrouterService = require("../utils/openrouterService");
 
-// ─── General chat endpoint ───────────────────────────────────────────────────
+// All recognized tool keys
+const ALL_TOOLS = [
+  "chat",
+  "document_analysis",
+  "code_explanation",
+  "idea_generation",
+  "tutoring",
+  "text_review",
+];
+
+// ─── Access guard ─────────────────────────────────────────────────────────────
+// Verifies:
+//  1. labId is provided and the lab exists
+//  2. toolType is enabled for that lab
+//  3. The requesting user is admin OR has an active subscription to the lab
+const checkLabToolAccess = async (userId, userRole, labId, toolType) => {
+  if (!labId) {
+    return { allowed: false, status: 400, message: "labId is required to use AI tools" };
+  }
+
+  const lab = await Lab.findById(labId).select("enabledAiTools isActive name");
+  if (!lab || !lab.isActive) {
+    return { allowed: false, status: 404, message: "Lab not found or inactive" };
+  }
+
+  if (!lab.enabledAiTools.includes(toolType)) {
+    return {
+      allowed: false,
+      status: 403,
+      message: `The tool "${toolType}" is not enabled for this lab`,
+    };
+  }
+
+  // Admins bypass subscription check
+  if (userRole === "admin") {
+    return { allowed: true, lab };
+  }
+
+  const subscription = await LabSubscription.findOne({
+    student: userId,
+    lab: labId,
+    status: "active",
+  });
+
+  if (!subscription) {
+    return {
+      allowed: false,
+      status: 403,
+      message: "You must have an active subscription to this lab to use its AI tools",
+    };
+  }
+
+  return { allowed: true, lab };
+};
+
+// ─── Public: list enabled AI tools for a lab ──────────────────────────────────
+// GET /api/ai-tools/labs/:labId/tools
+exports.listLabTools = async (req, res) => {
+  try {
+    const lab = await Lab.findById(req.params.labId).select("name enabledAiTools isActive");
+    if (!lab || !lab.isActive) {
+      return res.status(404).json({ message: "Lab not found or inactive" });
+    }
+
+    const toolMeta = {
+      chat: { label: "AI Chat", description: "General research assistant chat" },
+      document_analysis: { label: "Document Analysis", description: "Summarize and analyze research papers" },
+      code_explanation: { label: "Code Explanation", description: "Understand code and data scripts" },
+      idea_generation: { label: "Research Idea Generator", description: "Generate innovative research ideas" },
+      tutoring: { label: "AI Tutor", description: "Get concept explanations at your level" },
+      text_review: { label: "Text Review", description: "Get feedback on reports, proposals, writing" },
+    };
+
+    const tools = ALL_TOOLS.map((key) => ({
+      key,
+      ...toolMeta[key],
+      enabled: lab.enabledAiTools.includes(key),
+    }));
+
+    res.json({ labId: lab._id, labName: lab.name, tools });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── General chat endpoint ────────────────────────────────────────────
 // POST /api/ai-tools/chat
-// Body: { message, conversationId?, labId?, courseId? }
+// Body: { message, conversationId?, labId, courseId? }
 exports.chat = async (req, res) => {
   try {
     const { message, conversationId, labId, courseId } = req.body;
@@ -12,9 +99,13 @@ exports.chat = async (req, res) => {
     if (!message || message.trim().length === 0) {
       return res.status(400).json({ message: "Message cannot be empty" });
     }
-
     if (message.length > 5000) {
       return res.status(400).json({ message: "Message too long (max 5000 chars)" });
+    }
+
+    const access = await checkLabToolAccess(userId, req.user.role, labId, "chat");
+    if (!access.allowed) {
+      return res.status(access.status).json({ message: access.message });
     }
 
     let conversation;
@@ -90,7 +181,7 @@ exports.chat = async (req, res) => {
 
 // ─── Document analysis ───────────────────────────────────────────────────────
 // POST /api/ai-tools/analyze-document
-// Body: { documentText, analysisType: "summarize"|"keyfindings"|"methodology"|"critique", labId?, courseId? }
+// Body: { documentText, analysisType: "summarize"|"keyfindings"|"methodology"|"critique", labId, courseId? }
 exports.analyzeDocument = async (req, res) => {
   try {
     const { documentText, analysisType = "summarize", labId, courseId } = req.body;
@@ -99,9 +190,13 @@ exports.analyzeDocument = async (req, res) => {
     if (!documentText || documentText.trim().length === 0) {
       return res.status(400).json({ message: "Document cannot be empty" });
     }
-
     if (documentText.length > 20000) {
       return res.status(400).json({ message: "Document too long (max 20000 chars)" });
+    }
+
+    const access = await checkLabToolAccess(userId, req.user.role, labId, "document_analysis");
+    if (!access.allowed) {
+      return res.status(access.status).json({ message: access.message });
     }
 
     const conversation = await AIConversation.create({
@@ -151,7 +246,7 @@ exports.analyzeDocument = async (req, res) => {
 
 // ─── Code explanation ────────────────────────────────────────────────────────
 // POST /api/ai-tools/explain-code
-// Body: { code, language: "javascript"|"python"|..., labId?, courseId? }
+// Body: { code, language: "javascript"|"python"|..., labId, courseId? }
 exports.explainCode = async (req, res) => {
   try {
     const { code, language = "javascript", labId, courseId } = req.body;
@@ -160,9 +255,13 @@ exports.explainCode = async (req, res) => {
     if (!code || code.trim().length === 0) {
       return res.status(400).json({ message: "Code cannot be empty" });
     }
-
     if (code.length > 10000) {
       return res.status(400).json({ message: "Code too long (max 10000 chars)" });
+    }
+
+    const access = await checkLabToolAccess(userId, req.user.role, labId, "code_explanation");
+    if (!access.allowed) {
+      return res.status(access.status).json({ message: access.message });
     }
 
     const conversation = await AIConversation.create({
@@ -212,7 +311,7 @@ exports.explainCode = async (req, res) => {
 
 // ─── Generate research ideas ─────────────────────────────────────────────────
 // POST /api/ai-tools/generate-ideas
-// Body: { topic, context?, labId?, courseId? }
+// Body: { topic, context?, labId, courseId? }
 exports.generateIdeas = async (req, res) => {
   try {
     const { topic, context = "", labId, courseId } = req.body;
@@ -220,6 +319,11 @@ exports.generateIdeas = async (req, res) => {
 
     if (!topic || topic.trim().length === 0) {
       return res.status(400).json({ message: "Topic cannot be empty" });
+    }
+
+    const access = await checkLabToolAccess(userId, req.user.role, labId, "idea_generation");
+    if (!access.allowed) {
+      return res.status(access.status).json({ message: access.message });
     }
 
     const conversation = await AIConversation.create({
@@ -269,7 +373,7 @@ exports.generateIdeas = async (req, res) => {
 
 // ─── Tutoring / Concept explanation ──────────────────────────────────────────
 // POST /api/ai-tools/tutor
-// Body: { concept, level: "beginner"|"intermediate"|"advanced", labId?, courseId? }
+// Body: { concept, level: "beginner"|"intermediate"|"advanced", labId, courseId? }
 exports.tutor = async (req, res) => {
   try {
     const { concept, level = "beginner", labId, courseId } = req.body;
@@ -277,6 +381,11 @@ exports.tutor = async (req, res) => {
 
     if (!concept || concept.trim().length === 0) {
       return res.status(400).json({ message: "Concept cannot be empty" });
+    }
+
+    const access = await checkLabToolAccess(userId, req.user.role, labId, "tutoring");
+    if (!access.allowed) {
+      return res.status(access.status).json({ message: access.message });
     }
 
     const conversation = await AIConversation.create({
@@ -326,7 +435,7 @@ exports.tutor = async (req, res) => {
 
 // ─── Review text ────────────────────────────────────────────────────────────
 // POST /api/ai-tools/review-text
-// Body: { text, reviewType: "academic"|"technical"|"proposal", labId?, courseId? }
+// Body: { text, reviewType: "academic"|"technical"|"proposal", labId, courseId? }
 exports.reviewText = async (req, res) => {
   try {
     const { text, reviewType = "academic", labId, courseId } = req.body;
@@ -335,9 +444,13 @@ exports.reviewText = async (req, res) => {
     if (!text || text.trim().length === 0) {
       return res.status(400).json({ message: "Text cannot be empty" });
     }
-
     if (text.length > 15000) {
       return res.status(400).json({ message: "Text too long (max 15000 chars)" });
+    }
+
+    const access = await checkLabToolAccess(userId, req.user.role, labId, "text_review");
+    if (!access.allowed) {
+      return res.status(access.status).json({ message: access.message });
     }
 
     const conversation = await AIConversation.create({

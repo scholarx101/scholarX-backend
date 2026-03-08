@@ -17,6 +17,15 @@ const labSchema = new mongoose.Schema(
     // Max capacity: null means unlimited
     maxMembers: { type: Number, min: 1, default: null },
 
+    // AI tools enabled for this lab (admin picks from the known tool list)
+    enabledAiTools: {
+      type: [{
+        type: String,
+        enum: ["chat", "document_analysis", "code_explanation", "idea_generation", "tutoring", "text_review"],
+      }],
+      default: [],
+    },
+
     isActive: { type: Boolean, default: true, index: true },
   },
   { timestamps: true }

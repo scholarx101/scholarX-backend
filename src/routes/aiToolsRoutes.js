@@ -1,9 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const aiToolsController = require("../controllers/aiToolsController");
-const { protect, requireRole } = require("../middlewares/authMiddleware");
+const { protect, requireRole, optionalAuth } = require("../middlewares/authMiddleware");
 
-// ─── Student/Teacher: AI Tools ──────────────────────────────────────────────
+// ─── Public: see available tools for a lab (no access check) ─────────────────
+// GET /api/ai-tools/labs/:labId/tools
+router.get("/labs/:labId/tools", optionalAuth, aiToolsController.listLabTools);
+
+// ─── Student/Teacher: AI Tools (requires active lab subscription) ─────────────
 
 // General chat
 // POST /api/ai-tools/chat

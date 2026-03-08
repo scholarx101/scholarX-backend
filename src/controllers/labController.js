@@ -186,6 +186,44 @@ exports.assignModerators = async (req, res) => {
   }
 };
 
+// ─── Admin: Set enabled AI tools for a lab ────────────────────────────────
+// PATCH /api/labs/:id/ai-tools
+// Body: { tools: ["chat", "document_analysis", ...] }
+const VALID_AI_TOOLS = ["chat", "document_analysis", "code_explanation", "idea_generation", "tutoring", "text_review"];
+
+exports.setLabAiTools = async (req, res) => {
+  try {
+    const { tools } = req.body;
+
+    if (!Array.isArray(tools)) {
+      return res.status(400).json({ message: "tools must be an array" });
+    }
+
+    const invalid = tools.filter((t) => !VALID_AI_TOOLS.includes(t));
+    if (invalid.length > 0) {
+      return res.status(400).json({
+        message: `Invalid tool(s): ${invalid.join(", ")}. Valid tools: ${VALID_AI_TOOLS.join(", ")}`,
+      });
+    }
+
+    const lab = await Lab.findByIdAndUpdate(
+      req.params.id,
+      { enabledAiTools: [...new Set(tools)] }, // deduplicate
+      { new: true, runValidators: true }
+    )
+      .populate("labHead", "name designation photoUrl")
+      .populate("moderators", "name designation photoUrl");
+
+    if (!lab) {
+      return res.status(404).json({ message: "Lab not found" });
+    }
+
+    res.json(lab);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Admin: Upload/replace lab thumbnail ───────────────────────────────────
 // POST /api/labs/:id/thumbnail  (multipart, field: "thumbnail")
 exports.uploadLabThumbnail = async (req, res) => {

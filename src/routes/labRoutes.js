@@ -31,6 +31,15 @@ router.patch(
   labController.assignModerators
 );
 
+// Set AI tools enabled for this lab
+// PATCH /api/labs/:id/ai-tools  — body: { tools: [...] }
+router.patch(
+  "/:id/ai-tools",
+  protect,
+  requireRole("admin"),
+  labController.setLabAiTools
+);
+
 // Upload lab thumbnail
 // POST /api/labs/:id/thumbnail  — multipart, field: "thumbnail"
 router.post(
