@@ -38,7 +38,17 @@ exports.getLabs = async (req, res) => {
       .populate("moderators", "name designation photoUrl")
       .sort({ createdAt: -1 });
 
-    res.json(labs);
+    // Ensure thumbnailUrl is a relative path (strip Windows backslashes)
+    const normalized = labs.map((lab) => {
+      const obj = lab.toObject();
+      if (obj.thumbnailUrl) {
+        obj.thumbnailUrl = obj.thumbnailUrl.replace(/\\/g, "/");
+      }
+      obj.enabledAiTools = Array.isArray(obj.enabledAiTools) ? obj.enabledAiTools : [];
+      return obj;
+    });
+
+    res.json(normalized);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -60,7 +70,11 @@ exports.getLabById = async (req, res) => {
       return res.status(404).json({ message: "Lab not found" });
     }
 
-    res.json(lab);
+    const obj = lab.toObject();
+    if (obj.thumbnailUrl) obj.thumbnailUrl = obj.thumbnailUrl.replace(/\\/g, "/");
+    obj.enabledAiTools = Array.isArray(obj.enabledAiTools) ? obj.enabledAiTools : [];
+
+    res.json(obj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -76,6 +90,7 @@ exports.updateLab = async (req, res) => {
       "currency",
       "maxMembers",
       "isActive",
+      "enabledAiTools", // allow tools adjustments via generic update
     ];
 
     const updates = {};

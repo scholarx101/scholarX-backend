@@ -76,10 +76,11 @@ exports.listLabTools = async (req, res) => {
       text_review: { label: "Text Review", description: "Get feedback on reports, proposals, writing" },
     };
 
+    const enabledList = Array.isArray(lab.enabledAiTools) ? lab.enabledAiTools : [];
     const tools = ALL_TOOLS.map((key) => ({
       key,
       ...toolMeta[key],
-      enabled: lab.enabledAiTools.includes(key),
+      enabled: enabledList.includes(key),
     }));
 
     res.json({ labId: lab._id, labName: lab.name, tools });
